@@ -1,0 +1,262 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wat is dit nou weer voor stad?</title>
+  <style>
+    :root{ --bg:#0b0f19;--panel:#0f1523;--muted:#9aa4b2;--txt:#e7eaf0; --accent:#f5b301;--green:#1fa36b;--red:#e05252;--border:#1f2a44;--input:#0c1220; }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{margin:0;background:var(--bg);color:var(--txt);font:16px/1.45 system-ui,-apple-system,Segoe UI,Roboto,Arial}
+    .wrap{max-width:1080px;margin:0 auto;padding:20px}
+    .bar{background:var(--panel);border:1px solid var(--border);border-radius:14px;padding:14px 16px;margin-bottom:14px;display:flex;gap:8px;align-items:center;justify-content:space-between}
+    h1{font-size:22px;margin:0}
+    .muted{color:var(--muted);font-size:14px}
+    .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .chip{background:#0e1a2c;border:1px solid var(--border);color:#cbd5e1;padding:6px 10px;border-radius:999px}
+    input[type=text]{width:min(560px,100%);background:var(--input);border:1px solid var(--border);color:#cbd5e1;border-radius:12px;padding:11px 12px;outline:none}
+    .btn{border:1px solid var(--border);background:var(--accent);color:#1b1200;border-radius:10px;padding:10px 14px;cursor:pointer}
+    #map{height:56vh;min-height:340px;border:1px solid var(--border);border-radius:14px;overflow:hidden;background:#0a0f18;position:relative}
+    #map img{position:absolute;width:256px;height:256px;image-rendering:pixelated;pointer-events:none}
+    .hint{background:#0e1a2c;border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-top:10px}
+    .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
+    #banner{display:none;background:#2a1414;border:1px solid #6b1b1b;color:#ffd7d7;padding:10px 12px;border-radius:10px;margin:-4px 0 12px 0}
+    #banner.show{display:block}
+    #overlay{position:fixed;inset:0;background:rgba(10,16,25,.80);display:none;place-items:center;z-index:9999}
+    #overlay.show{display:grid}
+    .ov-card{background:#0f2d1c;border:2px solid var(--green);border-radius:22px;box-shadow:0 24px 80px rgba(0,0,0,.55);padding:clamp(22px,3.5vw,44px);color:#d9ffe9;text-align:center;max-width:min(860px,94vw)}
+    .ov-card.lose{background:#2a1414;border-color:var(--red);color:#ffe2e2}
+    .ov-title{font-size:clamp(28px,4.2vw,56px);margin:0 0 10px}
+    .ov-city{font-weight:800;text-decoration:underline}
+    .tiles{font-size:clamp(18px,2.3vw,28px);letter-spacing:4px;margin-top:6px}
+    .ov-actions{margin-top:16px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap}
+    .ov-actions .btn{background:var(--green);border:0;color:#072315;font-size:18px;padding:12px 18px;border-radius:12px}
+    .ov-card.lose .ov-actions .btn{background:#ffd17a;color:#3b2600}
+    #diag{display:none;white-space:pre-wrap;background:#0e1a2c;border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:12px;max-height:220px;overflow:auto}
+    /* Marker (stip) */
+    @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,59,59,.45)}70%{box-shadow:0 0 0 16px rgba(255,59,59,0)}100%{box-shadow:0 0 0 0 rgba(255,59,59,0)}}
+    .marker-dot{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:14px;height:14px;border-radius:999px;background:#ff3b3b;border:2px solid #fff;pointer-events:none;box-shadow:0 8px 20px rgba(0,0,0,.45);animation:pulse 1.8s infinite}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="bar">
+      <div>
+        <h1>Wat is dit nou weer voor stad?</h1>
+        <div class="muted">5 pogingen · luchtfoto zoomt uit per poging</div>
+      </div>
+      <div class="row">
+        <button id="btnToggleDiag" class="btn" title="Toon log">Log</button>
+      </div>
+    </div>
+
+    <div id="diag"></div>
+    <div id="banner"></div>
+
+    <div class="bar">
+      <div class="row">
+        <span class="chip">Zoom <span id="zoomLabel">17</span></span>
+        <span class="chip">Pogingen (<span id="attemptLabel">0</span>/5)</span>
+        <span class="chip">Hints (<span id="hintLabel">0</span>)</span>
+      </div>
+    </div>
+
+    <div class="bar">
+      <div class="row" style="flex:1">
+        <input id="guessInput" list="cityList" type="text" placeholder="Typ een stad…">
+        <datalist id="cityList"></datalist>
+        <button id="btnGuess" class="btn">Gok</button>
+      </div>
+    </div>
+
+    <div id="map"></div>
+    <div id="hints"></div>
+    <div class="chips" id="attempts"></div>
+  </div>
+
+  <div id="overlay"></div>
+
+<script>
+'use strict';
+// Log helpers
+const diag=document.getElementById('diag');
+function log(){ const s=[...arguments].map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' '); diag.textContent += (diag.textContent?'\\n':'') + s; }
+document.getElementById('btnToggleDiag').onclick=()=>{ diag.style.display = (diag.style.display==='none'?'block':'none'); };
+window.addEventListener('error', e=>{ log('JS error:', e.message, e.filename+':'+e.lineno); diag.style.display='block'; });
+window.addEventListener('unhandledrejection', e=>{ log('Promise rejection:', (e.reason&&e.reason.message)||String(e.reason)); diag.style.display='block'; });
+
+// Config
+const ZOOMS=[17,15,13,9,6,4]; // verder uitzoomen in de laatste 3 pogingen
+const MIN_MARKER_ATTEMPT = 3; // toon stip vanaf poging 3 (laatste 3)
+
+// Helpers
+const normalize = s => s.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9 '\\-]/g,'').replace(/\\s+/g,' ').trim();
+const fmtNum = n => new Intl.NumberFormat('nl-NL').format(n);
+const toRad=d=>d*Math.PI/180, toDeg=r=>r*180/Math.PI;
+function bearingDeg(lat1, lon1, lat2, lon2){
+  const y=Math.sin(toRad(lon2-lon1))*Math.cos(toRad(lat2));
+  const x=Math.cos(toRad(lat1))*Math.sin(toRad(lat2)) - Math.sin(toRad(lat1))*Math.cos(toRad(lat2))*Math.cos(toRad(lon2-lon1));
+  return (toDeg(Math.atan2(y,x))+360)%360;
+}
+function haversineKm(lat1, lon1, lat2, lon2){
+  const R=6371, dLat=toRad(lat2-lat1), dLon=toRad(lon2-lon1);
+  const a=Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLon/2)**2;
+  return 2*R*Math.asin(Math.sqrt(a));
+}
+function compass8(deg){ const d=['N','NNO','NO','ONO','O','OZO','ZO','ZZO','Z','ZZW','ZW','WZW','W','WNW','NW','NNW']; return d[Math.round(deg/22.5)%16]; }
+function scoreTiles(t, w){ const a=new Array(5).fill('⬜'); for(let i=0;i<t;i++) a[i]='⬛'; if(w && t>0) a[t-1]='🟩'; return a.join(' '); }
+function showOverlay(type, cityName, tries){
+  const lose=type==='lose', host=document.getElementById('overlay');
+  host.innerHTML=`
+  <div class="ov-card ${lose?'lose':''}">
+    <h2 class="ov-title">${lose?'Helaas! Het was':'Juist! Het is'} <span class="ov-city">${cityName}</span></h2>
+    <div class="tiles">${lose?'X/5':tries+'/5'} — ${scoreTiles(lose?5:tries, !lose)}</div>
+    <div class="ov-actions"><button class="btn" id="btnNewGame">Nieuw spel</button></div>
+  </div>`;
+  host.classList.add('show');
+  document.getElementById('btnNewGame').onclick=()=>{ host.classList.remove('show'); newRound(); };
+}
+
+// Mini tile-engine (Esri → OSM fallback)
+const TILE=256; let provider='esri', esriErr=0;
+function tileUrl(z,x,y){ return provider==='esri'
+  ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`
+  : `https://tile.openstreetmap.org/${z}/${x}/${y}.png`; }
+function latLonToWorld(lat, lon, z){
+  const s=256*Math.pow(2,z);
+  const x=(lon+180)/360*s;
+  const y=(1 - Math.log(Math.tan(toRad(lat))+1/Math.cos(toRad(lat)))/Math.PI)/2*s;
+  return {x,y};
+}
+function renderMap(cont, lat, lon, z){
+  const w=cont.clientWidth, h=cont.clientHeight;
+  cont.innerHTML='';
+  const center=latLonToWorld(lat,lon,z);
+  const topLeft={x:center.x-w/2,y:center.y-h/2};
+  const startX=Math.floor(topLeft.x/TILE), startY=Math.floor(topLeft.y/TILE);
+  const offX=-(topLeft.x-startX*TILE), offY=-(topLeft.y-startY*TILE);
+  const cols=Math.ceil((w-offX)/TILE)+1, rows=Math.ceil((h-offY)/TILE)+1;
+  const max=Math.pow(2,z)-1;
+  for(let r=0;r<rows;r++){
+    for(let c=0;c<cols;c++){
+      const tx=startX+c, ty=startY+r;
+      if(tx<0||ty<0||tx>max||ty>max) continue;
+      const img=new Image(); img.width=img.height=TILE;
+      img.style.left=(offX+c*TILE)+'px'; img.style.top=(offY+r*TILE)+'px'; img.alt='';
+      img.decoding='async'; img.loading='lazy'; img.src=tileUrl(z,tx,ty);
+      img.onerror=()=>{ if(provider==='esri'){ esriErr++; if(esriErr>=8){ provider='osm'; const b=document.getElementById('banner'); if(b){ b.textContent='Esri-tiles konden niet geladen worden — overgeschakeld naar OSM.'; b.classList.add('show'); } renderMap(cont,lat,lon,z); } } };
+      cont.appendChild(img);
+    }
+  }
+  // Marker (stip) op de centerpositie bij laatste 3 pogingen
+  try{
+    if (typeof attempts !== 'undefined' && attempts.length >= MIN_MARKER_ATTEMPT){
+      const dot=document.createElement('div');
+      dot.className='marker-dot';
+      cont.appendChild(dot);
+    }
+  }catch(e){}
+}
+
+// UI/state
+let answer=null, attempts=[], revealCount=0;
+const MAP=document.getElementById('map');
+const ZL=document.getElementById('zoomLabel'), AL=document.getElementById('attemptLabel'), HL=document.getElementById('hintLabel');
+function updateHUD(){ AL.textContent=Math.min(attempts.length,5); HL.textContent=revealCount; ZL.textContent=ZOOMS[Math.min(attempts.length, ZOOMS.length-1)]; }
+function setMapView(lat,lng,zoom){ renderMap(MAP,lat,lng,zoom); }
+function getCountry(ans){
+  return ans.country_nl || ans.land || ans.country || ans.countryName_nl || ans.countryName || ans.country_name_nl || ans.country_name || ans.iso2 || ans.cc || '—';
+}
+function renderHints(extra){
+  const box=document.getElementById('hints'); box.innerHTML='';
+  const arr=[];
+  if(revealCount>=1) arr.push(`Hint 1: Continent: <b>${answer.continent}</b>`);
+  if(revealCount>=2) arr.push(`Hint 2: Inwoners (gemeente): <b>${fmtNum(answer.population)}</b>`);
+  if(revealCount>=3) arr.push(`Hint 3: Land: <b>${getCountry(answer)}</b>`);
+  if(extra) arr.push(extra);
+  for(const h of arr){ const d=document.createElement('div'); d.className='hint'; d.innerHTML=h; box.appendChild(d); }
+}
+
+// Data (fallback + laadhelpers)
+const SAMPLE_ANS=[
+  {"name":"Amsterdam","lat":52.3676,"lng":4.9041,"continent":"Europa","population":921000,"country":"Nederland"},
+  {"name":"London","lat":51.5074,"lng":-0.1278,"continent":"Europa","population":8900000,"country":"Verenigd Koninkrijk"},
+  {"name":"New York","lat":40.7128,"lng":-74.0060,"continent":"Noord-Amerika","population":8400000,"country":"Verenigde Staten"},
+  {"name":"Tokyo","lat":35.6895,"lng":139.6917,"continent":"Azië","population":13960000,"country":"Japan"},
+  {"name":"São Paulo","lat":-23.5505,"lng":-46.6333,"continent":"Zuid-Amerika","population":12300000,"country":"Brazilië"}
+];
+const SAMPLE_LOOK=[
+  {"name":"Amsterdam","lat":52.3676,"lng":4.9041,"aliases":["amsterdam"]},
+  {"name":"London","lat":51.5074,"lng":-0.1278,"aliases":["london","londen"]},
+  {"name":"New York","lat":40.7128,"lng":-74.0060,"aliases":["new york","nyc","new-york"]},
+  {"name":"Tokyo","lat":35.6895,"lng":139.6917,"aliases":["tokyo","tokio"]},
+  {"name":"São Paulo","lat":-23.5505,"lng":-46.6333,"aliases":["sao paulo","são paulo","sao-paulo"]}
+];
+async function loadJSON(path){ const r=await fetch(path,{cache:'no-cache'}); if(!r.ok) throw new Error('HTTP '+r.status+' voor '+path); return r.json(); }
+const answersP = loadJSON('data/cities-answers-100k.json').catch(e=>{ const b=document.getElementById('banner'); if(b){ b.textContent='Kon cities-answers-100k.json niet laden — sample gebruikt.'; b.classList.add('show'); } return SAMPLE_ANS; });
+const lookupP  = loadJSON('data/cities-lookup-100k.json').catch(e=>{ const b=document.getElementById('banner'); if(b){ b.textContent='Kon cities-lookup-100k.json niet laden — sample gebruikt.'; b.classList.add('show'); } return SAMPLE_LOOK; });
+
+// Spel
+function pickRandom(list){ return list[Math.floor(Math.random()*list.length)]; }
+async function newRound(){
+  const answers=await answersP;
+  answer=pickRandom(answers); attempts=[]; revealCount=0; provider='esri'; esriErr=0;
+  setMapView(answer.lat, answer.lng, ZOOMS[0]); renderHints(); updateHUD();
+  const inp=document.getElementById('guessInput'); inp.value=''; setTimeout(()=>inp.focus(),10);
+  log('New round:', answer.name, answer.lat, answer.lng);
+}
+async function submitGuess(){
+  const inp=document.getElementById('guessInput'); const val=inp.value.trim(); if(!val) return;
+  attempts.push(val);
+  setMapView(answer.lat, answer.lng, ZOOMS[Math.min(attempts.length, ZOOMS.length-1)]);
+
+  const lookup=await lookupP;
+  if(!window._aliasMap){
+    const m=new Map();
+    for(const c of lookup){
+      const base=normalize(c.name); if(!m.has(base)) m.set(base,c);
+      if(Array.isArray(c.aliases)){ for(const a of c.aliases){ const na=normalize(a); if(!m.has(na)) m.set(na,c); } }
+    }
+    window._aliasMap=m; log('Alias map built:', m.size);
+  }
+  const norm=normalize(val); const match=window._aliasMap.get(norm);
+  const won=!!(match && Math.abs(match.lat-answer.lat)<1e-6 && Math.abs(match.lng-answer.lng)<1e-6);
+  if(won){ showOverlay('win', answer.name, attempts.length); return; }
+
+  revealCount=Math.min(revealCount+1,5);
+  let extra=null;
+  if(match){
+    const d=Math.round(haversineKm(match.lat, match.lng, answer.lat, answer.lng));
+    const b=bearingDeg(match.lat, match.lng, answer.lat, answer.lng);
+    extra=`Afstand-hint: Vanaf je laatste gok <b>${match.name}</b> is het ongeveer <b>${d} km</b> richting <b>${compass8(b)}</b>.`;
+  } else {
+    extra='Kon je gok niet in de stedenlijst vinden. Probeer een andere schrijfwijze of grote stad in de buurt.';
+  }
+  renderHints(extra); updateHUD(); inp.value='';
+  if(attempts.length>=5){ showOverlay('lose', answer.name, 5); }
+}
+
+// Boot
+(async function init(){
+  try{
+    document.getElementById('btnGuess').addEventListener('click', submitGuess);
+    document.getElementById('guessInput').addEventListener('keydown', e=>{ if(e.key==='Enter') submitGuess(); });
+
+    const lookup=await lookupP;
+    const opts=new Set(); for(const c of lookup){ opts.add(c.name); if(Array.isArray(c.aliases)){ for(const a of c.aliases.slice(0,2)){ if(a && a.length>1) opts.add(a); } } }
+    const sorted=[...opts].sort((a,b)=>a.localeCompare(b,'nl')); const frag=document.createDocumentFragment();
+    for(const s of sorted){ const o=document.createElement('option'); o.value=s; frag.appendChild(o); }
+    document.getElementById('cityList').appendChild(frag);
+    log('Autocomplete items:', sorted.length);
+
+    await newRound();
+    log('Init finished.');
+  }catch(err){
+    log('Init error:', err && (err.stack||err.message||String(err)));
+    diag.style.display='block';
+  }
+})();
+</script>
+</body>
+</html>
