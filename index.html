@@ -34,7 +34,6 @@
     .ov-actions .btn{background:var(--green);border:0;color:#072315;font-size:18px;padding:12px 18px;border-radius:12px}
     .ov-card.lose .ov-actions .btn{background:#ffd17a;color:#3b2600}
     #diag{display:none;white-space:pre-wrap;background:#0e1a2c;border:1px solid var(--border);border-radius:10px;padding:10px;margin-bottom:12px;max-height:220px;overflow:auto}
-    /* Marker (stip) */
     @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(255,59,59,.45)}70%{box-shadow:0 0 0 16px rgba(255,59,59,0)}100%{box-shadow:0 0 0 0 rgba(255,59,59,0)}}
     .marker-dot{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:14px;height:14px;border-radius:999px;background:#ff3b3b;border:2px solid #fff;pointer-events:none;box-shadow:0 8px 20px rgba(0,0,0,.45);animation:pulse 1.8s infinite}
   </style>
@@ -79,19 +78,17 @@
 
 <script>
 'use strict';
-// Log helpers
 const diag=document.getElementById('diag');
 function log(){ const s=[...arguments].map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' '); diag.textContent += (diag.textContent?'\\n':'') + s; }
 document.getElementById('btnToggleDiag').onclick=()=>{ diag.style.display = (diag.style.display==='none'?'block':'none'); };
 window.addEventListener('error', e=>{ log('JS error:', e.message, e.filename+':'+e.lineno); diag.style.display='block'; });
 window.addEventListener('unhandledrejection', e=>{ log('Promise rejection:', (e.reason&&e.reason.message)||String(e.reason)); diag.style.display='block'; });
 
-// Config
-const ZOOMS=[17,15,13,9,6,4]; // verder uitzoomen in de laatste 3 pogingen
-const MIN_MARKER_ATTEMPT = 3; // toon stip vanaf poging 3 (laatste 3)
+const ZOOMS=[17,15,13,9,6,4];
+const MIN_MARKER_ATTEMPT = 3;
 
-// Helpers
-const normalize = s => s.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').replace(/[^a-z0-9 '\\-]/g,'').replace(/\\s+/g,' ').trim();
+const normalize = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 '\-]/g,'').replace(/\s+/g,' ').trim();
+const stripSep = s => s.replace(/[\s'-]/g,'');
 const fmtNum = n => new Intl.NumberFormat('nl-NL').format(n);
 const toRad=d=>d*Math.PI/180, toDeg=r=>r*180/Math.PI;
 function bearingDeg(lat1, lon1, lat2, lon2){
@@ -118,7 +115,6 @@ function showOverlay(type, cityName, tries){
   document.getElementById('btnNewGame').onclick=()=>{ host.classList.remove('show'); newRound(); };
 }
 
-// Mini tile-engine (Esri → OSM fallback)
 const TILE=256; let provider='esri', esriErr=0;
 function tileUrl(z,x,y){ return provider==='esri'
   ? `https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/${z}/${y}/${x}`
@@ -149,7 +145,6 @@ function renderMap(cont, lat, lon, z){
       cont.appendChild(img);
     }
   }
-  // Marker (stip) op de centerpositie bij laatste 3 pogingen
   try{
     if (typeof attempts !== 'undefined' && attempts.length >= MIN_MARKER_ATTEMPT){
       const dot=document.createElement('div');
@@ -159,7 +154,6 @@ function renderMap(cont, lat, lon, z){
   }catch(e){}
 }
 
-// UI/state
 let answer=null, attempts=[], revealCount=0;
 const MAP=document.getElementById('map');
 const ZL=document.getElementById('zoomLabel'), AL=document.getElementById('attemptLabel'), HL=document.getElementById('hintLabel');
@@ -178,7 +172,6 @@ function renderHints(extra){
   for(const h of arr){ const d=document.createElement('div'); d.className='hint'; d.innerHTML=h; box.appendChild(d); }
 }
 
-// Data (fallback + laadhelpers)
 const SAMPLE_ANS=[
   {"name":"Amsterdam","lat":52.3676,"lng":4.9041,"continent":"Europa","population":921000,"country":"Nederland"},
   {"name":"London","lat":51.5074,"lng":-0.1278,"continent":"Europa","population":8900000,"country":"Verenigd Koninkrijk"},
@@ -197,7 +190,6 @@ async function loadJSON(path){ const r=await fetch(path,{cache:'no-cache'}); if(
 const answersP = loadJSON('data/cities-answers-100k.json').catch(e=>{ const b=document.getElementById('banner'); if(b){ b.textContent='Kon cities-answers-100k.json niet laden — sample gebruikt.'; b.classList.add('show'); } return SAMPLE_ANS; });
 const lookupP  = loadJSON('data/cities-lookup-100k.json').catch(e=>{ const b=document.getElementById('banner'); if(b){ b.textContent='Kon cities-lookup-100k.json niet laden — sample gebruikt.'; b.classList.add('show'); } return SAMPLE_LOOK; });
 
-// Spel
 function pickRandom(list){ return list[Math.floor(Math.random()*list.length)]; }
 async function newRound(){
   const answers=await answersP;
@@ -214,13 +206,16 @@ async function submitGuess(){
   const lookup=await lookupP;
   if(!window._aliasMap){
     const m=new Map();
+    const add = (key, c) => { if(!m.has(key)) m.set(key, c); };
+    const addAll = (text, c) => { const n=normalize(text); add(n,c); add(stripSep(n),c); };
     for(const c of lookup){
-      const base=normalize(c.name); if(!m.has(base)) m.set(base,c);
-      if(Array.isArray(c.aliases)){ for(const a of c.aliases){ const na=normalize(a); if(!m.has(na)) m.set(na,c); } }
+      addAll(c.name||'', c);
+      if(Array.isArray(c.aliases)){ for(const a of c.aliases){ addAll(a||'', c); } }
     }
-    window._aliasMap=m; log('Alias map built:', m.size);
+    window._aliasMap=m; log('Alias map built (AliasPlus):', m.size);
   }
-  const norm=normalize(val); const match=window._aliasMap.get(norm);
+  let norm=normalize(val);
+  let match=window._aliasMap.get(norm) || window._aliasMap.get(stripSep(norm));
   const won=!!(match && Math.abs(match.lat-answer.lat)<1e-6 && Math.abs(match.lng-answer.lng)<1e-6);
   if(won){ showOverlay('win', answer.name, attempts.length); return; }
 
@@ -237,7 +232,6 @@ async function submitGuess(){
   if(attempts.length>=5){ showOverlay('lose', answer.name, 5); }
 }
 
-// Boot
 (async function init(){
   try{
     document.getElementById('btnGuess').addEventListener('click', submitGuess);
