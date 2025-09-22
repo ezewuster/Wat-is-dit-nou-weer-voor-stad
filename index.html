@@ -79,7 +79,7 @@
 <script>
 'use strict';
 const diag=document.getElementById('diag');
-function log(){ const s=[...arguments].map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' '); diag.textContent += (diag.textContent?'\\n':'') + s; }
+function log(){ const s=[...arguments].map(x=>typeof x==='string'?x:JSON.stringify(x)).join(' '); diag.textContent += (diag.textContent?'\n':'') + s; }
 document.getElementById('btnToggleDiag').onclick=()=>{ diag.style.display = (diag.style.display==='none'?'block':'none'); };
 window.addEventListener('error', e=>{ log('JS error:', e.message, e.filename+':'+e.lineno); diag.style.display='block'; });
 window.addEventListener('unhandledrejection', e=>{ log('Promise rejection:', (e.reason&&e.reason.message)||String(e.reason)); diag.style.display='block'; });
@@ -87,8 +87,11 @@ window.addEventListener('unhandledrejection', e=>{ log('Promise rejection:', (e.
 const ZOOMS=[17,15,13,9,6,4];
 const MIN_MARKER_ATTEMPT = 3;
 
-const normalize = s => s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9 '\-]/g,'').replace(/\s+/g,' ').trim();
+const normalize = s => s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^a-z0-9 '\-]/g,'').replace(/\s+/g,' ').trim();
 const stripSep = s => s.replace(/[\s'-]/g,'');
+const deaccentKeepSep = t => (t||'').normalize('NFD').replace(/[̀-ͯ]/g,'');
+const titleCase = s => s.replace(/\b(\w)/g, (m,p1)=>p1.toUpperCase());
+
 const fmtNum = n => new Intl.NumberFormat('nl-NL').format(n);
 const toRad=d=>d*Math.PI/180, toDeg=r=>r*180/Math.PI;
 function bearingDeg(lat1, lon1, lat2, lon2){
@@ -238,11 +241,35 @@ async function submitGuess(){
     document.getElementById('guessInput').addEventListener('keydown', e=>{ if(e.key==='Enter') submitGuess(); });
 
     const lookup=await lookupP;
-    const opts=new Set(); for(const c of lookup){ opts.add(c.name); if(Array.isArray(c.aliases)){ for(const a of c.aliases.slice(0,2)){ if(a && a.length>1) opts.add(a); } } }
-    const sorted=[...opts].sort((a,b)=>a.localeCompare(b,'nl')); const frag=document.createDocumentFragment();
+    const opts=new Set();
+    function pushOpt(label){
+      if(!label) return;
+      const v=label.trim();
+      if(!v) return;
+      opts.add(v);
+    }
+    function addVariants(text){
+      if(!text) return;
+      const pretty = text;
+      const deacc = deaccentKeepSep(text);
+      const nospace = deacc.replace(/[\s'-]/g,'');
+      pushOpt(pretty);
+      if (deacc.toLowerCase() !== pretty.toLowerCase()) pushOpt(titleCase(deacc));
+      if (nospace && nospace.toLowerCase() !== pretty.toLowerCase() && nospace.toLowerCase() !== deacc.toLowerCase()) pushOpt(titleCase(nospace));
+    }
+    for(const c of lookup){
+      addVariants(c.name);
+      if(Array.isArray(c.aliases)){
+        for(const a of c.aliases.slice(0,2)){
+          addVariants(a);
+        }
+      }
+    }
+    const sorted=[...opts].sort((a,b)=>a.localeCompare(b,'nl'));
+    const frag=document.createDocumentFragment();
     for(const s of sorted){ const o=document.createElement('option'); o.value=s; frag.appendChild(o); }
     document.getElementById('cityList').appendChild(frag);
-    log('Autocomplete items:', sorted.length);
+    log('Autocomplete items (with deaccented variants):', sorted.length);
 
     await newRound();
     log('Init finished.');
@@ -254,3 +281,4 @@ async function submitGuess(){
 </script>
 </body>
 </html>
+
